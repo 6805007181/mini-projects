@@ -29,7 +29,7 @@ void handleRemoveProduct(CommandContext *ctx){
   User *luser = getUserBySession(ctx->sessions, sessionId2);
   if (luser == NULL)
   {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
+    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REMOVE_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
     send(ctx->clientSocket, response, strlen(response), 0);
   }
   else
