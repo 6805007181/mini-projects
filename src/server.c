@@ -1,4 +1,6 @@
 #include "server.h"
+
+#include "server.h"
 #include <signal.h>
 #include <sys/mman.h>
 #include <semaphore.h>
@@ -6,265 +8,18 @@
 #include <sys/stat.h> /* For mode constants like 0644 */
 
 SOCKET socket_listen = -1;
-Store *store = NULL;
-UserSessions *user = NULL;
-Cart *cart = NULL;
-Order *currentOrder = NULL;
+Project *project = NULL;
 sem_t *sem = NULL;
-const char *adminUser = "admin";
-const char *adminPwd = "admin";
 
-void handleRemoveProduct(CommandContext *ctx){
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REMOVE_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    if (productId)
-    {
-      // 1. Wait for the lock (Block if another process is buying)
-      sem_wait(sem);
-
-      // 2. CRITICAL SECTION: Only one process can be here at a time
-      int result = deleteProduct(ctx->store, productId);
-      saveStore(ctx->store, STORE_FILENAME);
-      // 3. Release the lock
-      sem_post(sem);
-      if (result == 0)
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REMOVE_PRODUCT, COMMAND_SEPARATOR, STATUS_OK);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-      else
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REMOVE_PRODUCT, COMMAND_SEPARATOR, STATUS_FAIL);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-    }
-    else
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REMOVE_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-}
-
-void handleAddProduct(CommandContext *ctx){
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productTitle = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *priceStr = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *qtyStr = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    if (productId && productTitle && qtyStr && priceStr)
-    {
-      // 1. Wait for the lock (Block if another process is buying)
-      sem_wait(sem);
-
-      // 2. CRITICAL SECTION: Only one process can be here at a time
-      int result = addProduct(ctx->store, productId, productTitle, atof(priceStr), atoi(qtyStr));
-      saveStore(ctx->store, STORE_FILENAME);
-      // 3. Release the lock
-      sem_post(sem);
-      if (result == 0)
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_PRODUCT, COMMAND_SEPARATOR, STATUS_OK);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-      else
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_PRODUCT, COMMAND_SEPARATOR, STATUS_FAIL);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-    }
-    else
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-}
-void handleViewOrder(CommandContext *ctx)
+void handleAddBoard(CommandContext *ctx)
 {
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE + GET_CART_ORDER_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  sem_wait(sem);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    // 2. Release the lock
-    sem_post(sem);
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_VIEW_ORDER, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    
+  char *boardTitle = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
 
-    // 1. CRITICAL SECTION: Only one process can be here at a time
-    char orderDetails[GET_USER_SIZE];
-    if(luser->isAdmin){
-      getOrder(ctx->order,ALL_USERS, orderDetails, GET_CART_ORDER_SIZE, 1);
-    }else{
-      getOrder(ctx->order,luser->username, orderDetails, GET_CART_ORDER_SIZE, 1);
-    }
-    
-
-    // 2. Release the lock
-    sem_post(sem);
-    snprintf(response, sizeof(response), "%s%s%d%s%s\n", COMMAND_VIEW_ORDER, COMMAND_SEPARATOR, STATUS_OK, COMMAND_SEPARATOR, orderDetails);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-}
-
-void handleViewCart(CommandContext *ctx)
-{
-
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE + GET_CART_ORDER_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  sem_wait(sem);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    sem_post(sem);
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_VIEW_CART, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    
-
-    // 1. CRITICAL SECTION: Only one process can be here at a time
-    char cartDetails[GET_USER_SIZE];
-    if(luser->isAdmin){
-      getOrder(ctx->order, ALL_USERS, cartDetails, GET_CART_ORDER_SIZE, 0);
-    }else{
-      getOrder(ctx->order, luser->username, cartDetails, GET_CART_ORDER_SIZE, 0);
-    }
-    
-
-    // 2. Release the lock
-    sem_post(sem);
-    snprintf(response, sizeof(response), "%s%s%d%s%s\n", COMMAND_VIEW_CART, COMMAND_SEPARATOR, STATUS_OK, COMMAND_SEPARATOR, cartDetails);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-}
-
-void handleCheckoutCart(CommandContext *ctx)
-{
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
   char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_CHECKOUT_CART, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    if (productId)
-    {
 
-      // 1. Wait for the lock (Block if another process is buying)
-      sem_wait(sem);
-
-      printf("Product ID: %s\n", productId);
-      // 2. CRITICAL SECTION: Only one process can be here at a time
-      int result = checkoutCart(ctx->order, luser->username, productId);
-      int result2 = saveOrder(ctx->order, ORDER_FILENAME);
-
-      // 3. Release the lock
-      sem_post(sem);
-      if (result == 0 && result2 == 0)
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_CHECKOUT_CART, COMMAND_SEPARATOR, STATUS_OK);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-      else
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_CHECKOUT_CART, COMMAND_SEPARATOR, STATUS_FAIL);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-    }
-    else
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_CHECKOUT_CART, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-}
-
-void handleClearCart(CommandContext *ctx)
-{
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
+  if (isEmptyOrSpace(boardTitle))
   {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
+    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_BOARD, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
     send(ctx->clientSocket, response, strlen(response), 0);
   }
   else
@@ -273,325 +28,74 @@ void handleClearCart(CommandContext *ctx)
     sem_wait(sem);
 
     // 2. CRITICAL SECTION: Only one process can be here at a time
-    printf("username: %s\n", luser->username);
-    int result = clearCart(ctx->order, ctx->store, luser->username);
-    int result2 = saveOrder(ctx->order, ORDER_FILENAME);
-    int result3 = saveStore(ctx->store, STORE_FILENAME);
-
-    // 3. Release the lock
-    sem_post(sem);
-    if (result == 0 && result2 == 0 && result3 == 0)
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_OK);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-    else
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_FAIL);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-}
-
-void handleUpdateCart(CommandContext *ctx)
-{
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *qtyStr = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    if (productId && qtyStr && atoi(qtyStr) > 0)
-    {
-      // 1. Wait for the lock (Block if another process is buying)
-      sem_wait(sem);
-
-      // 2. CRITICAL SECTION: Only one process can be here at a time
-      int result = updateStore(ctx->store, productId, IGNORE_UPDATE_TITLE, IGNORE_UPDATE_PRICE, -1 * atoi(qtyStr));
-      int result2 = updateCart(ctx->order, luser->username, productId, atoi(qtyStr));
-      int result3 = saveOrder(ctx->order, ORDER_FILENAME);
-      int result4 = saveStore(ctx->store, STORE_FILENAME);
-      // 3. Release the lock
-      sem_post(sem);
-      if (result2 == 0 && result == 0 && result3 == 0 && result4 == 0)
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_OK);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-      else
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_FAIL);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-    }
-    else if (productId && qtyStr && atoi(qtyStr) < 0)
-    {
-      // 1. Wait for the lock (Block if another process is buying)
-      sem_wait(sem);
-
-      // 2. CRITICAL SECTION: Only one process can be here at a time
-      int result = updateStore(ctx->store, productId, IGNORE_UPDATE_TITLE, IGNORE_UPDATE_PRICE,-1 *  atoi(qtyStr));
-      int result2 = updateCart(ctx->order, luser->username, productId, atoi(qtyStr));
-      int result3 = saveOrder(ctx->order, ORDER_FILENAME);
-      int result4 = saveStore(ctx->store, STORE_FILENAME);
-      // 3. Release the lock
-      sem_post(sem);
-      if (result2 == 0 && result == 0 && result3 == 0 && result4 == 0)
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_OK);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-      else
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_FAIL);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-    }
-    else
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_CART, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-}
-
-void handleRegisterMember(CommandContext *ctx)
-{
-
-  char *username = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *password = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-
-  char response[MESSAGE_SIZE];
-
-  if (username && password)
-  {
-    // 1. Wait for the lock (Block if another process is buying)
-    sem_wait(sem);
-
-    // 2. CRITICAL SECTION: Only one process can be here at a time
-    int result = registerUser(ctx->sessions, username, password, 0);
+    int result = addBoard(ctx->project, boardTitle);
+    saveBoard(ctx->project, BOARD_FILENAME);
     // 3. Release the lock
     sem_post(sem);
     if (result == 0)
     {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REGISTER_MEMBER, COMMAND_SEPARATOR, STATUS_OK);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-    else if (result == 2)
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REGISTER_MEMBER, COMMAND_SEPARATOR, STATUS_DUPLICATE_USER);
+      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_BOARD, COMMAND_SEPARATOR, STATUS_OK);
       send(ctx->clientSocket, response, strlen(response), 0);
     }
     else
     {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REGISTER_MEMBER, COMMAND_SEPARATOR, STATUS_FAIL);
+      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_BOARD, COMMAND_SEPARATOR, STATUS_FAIL);
       send(ctx->clientSocket, response, strlen(response), 0);
     }
   }
-  else
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_REGISTER_MEMBER, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
 }
 
-void handleViewMember(CommandContext *ctx)
+void handleAddTask(CommandContext *ctx)
 {
-  char response[MESSAGE_SIZE + GET_USER_SIZE];
-  sem_wait(sem);
+    char *boardId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
+    char *taskTitle = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
 
-  // 1. CRITICAL SECTION: Only one process can be here at a time
-  char userDetails[GET_USER_SIZE];
-  getUser(ctx->sessions, userDetails, GET_USER_SIZE);
+    char response[MESSAGE_SIZE];
 
-  // 2. Release the lock
-  sem_post(sem);
-  snprintf(response, sizeof(response), "%s%s%d%s%s\n", COMMAND_VIEW_MEMBER, COMMAND_SEPARATOR, STATUS_OK, COMMAND_SEPARATOR, userDetails);
-  send(ctx->clientSocket, response, strlen(response), 0);
-}
+    if (boardId == NULL || taskTitle == NULL ||
+        isEmptyOrSpace(boardId) || isEmptyOrSpace(taskTitle))
+    {
+        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_TASK, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
+        send(ctx->clientSocket, response, strlen(response), 0);
+        return;
+    }
 
-void handleSearchProduct(CommandContext *ctx)
-{
-  char response[MESSAGE_SIZE + GET_STORE_SIZE];
-  char *productId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  if (productId == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_SEARCH_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
+    Board *board = NULL;
+    for (int i = 0; i < MAX_BOARD; i++)
+    {
+        if (strcmp(ctx->project->boards[i].boardId, boardId) == 0)
+        {
+            board = &ctx->project->boards[i];
+            break;
+        }
+    }
 
+    if (board == NULL)
+    {
+        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_TASK, COMMAND_SEPARATOR, STATUS_BOARD_NOT_FOUND);
+        send(ctx->clientSocket, response, strlen(response), 0);
+        return;
+    }
+
+    // 1. Wait for the lock
     sem_wait(sem);
 
-    // 1. CRITICAL SECTION: Only one process can be here at a time
-    char storeDetails[GET_STORE_SIZE];
-    searchStore(ctx->store, productId, storeDetails, GET_STORE_SIZE);
+    // 2. CRITICAL SECTION
+    int result = addTask(board, taskTitle);
+    saveAllTasks(ctx->project, TASK_FILENAME);
 
-    // 2. Release the lock
-    sem_post(sem);
-    snprintf(response, sizeof(response), "%s%s%d%s%s\n", COMMAND_SEARCH_PRODUCT, COMMAND_SEPARATOR, STATUS_OK, COMMAND_SEPARATOR, storeDetails);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-}
-
-void handleViewProduct(CommandContext *ctx)
-{
-  char response[MESSAGE_SIZE + GET_STORE_SIZE];
-  sem_wait(sem);
-
-  // 1. CRITICAL SECTION: Only one process can be here at a time
-  char storeDetails[GET_STORE_SIZE];
-  getStore(ctx->store, storeDetails, GET_STORE_SIZE);
-
-  // 2. Release the lock
-  sem_post(sem);
-  snprintf(response, sizeof(response), "%s%s%d%s%s\n", COMMAND_VIEW_PRODUCT, COMMAND_SEPARATOR, STATUS_OK, COMMAND_SEPARATOR, storeDetails);
-  send(ctx->clientSocket, response, strlen(response), 0);
-}
-
-void handleUpdateProduct(CommandContext *ctx)
-{
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *productTitle = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *priceStr = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *qtyStr = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  if (luser == NULL)
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    if (productId && productTitle && qtyStr && priceStr)
-    {
-      // 1. Wait for the lock (Block if another process is buying)
-      sem_wait(sem);
-
-      // 2. CRITICAL SECTION: Only one process can be here at a time
-      int result = updateProduct(ctx->store, productId, productTitle, atof(priceStr), atoi(qtyStr));
-      saveStore(ctx->store, STORE_FILENAME);
-      // 3. Release the lock
-      sem_post(sem);
-      if (result == 0)
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_PRODUCT, COMMAND_SEPARATOR, STATUS_OK);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-      else
-      {
-        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_PRODUCT, COMMAND_SEPARATOR, STATUS_FAIL);
-        send(ctx->clientSocket, response, strlen(response), 0);
-      }
-    }
-    else
-    {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_UPDATE_PRODUCT, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-}
-
-void handleLogin(CommandContext *ctx)
-{
-  // printf("line: %s\n", saveptr);
-  char *username = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char *password = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-
-  if (username && password)
-  {
-    // 1. Wait for the lock (Block if another process is buying)
-    sem_wait(sem);
-    User *luser = loginUser(ctx->sessions, username, password);
-    
-    if (luser != NULL)
-    {
-      snprintf(response, sizeof(response), "%s%s%d%s%lu%s%d\n", COMMAND_LOGIN, COMMAND_SEPARATOR, STATUS_OK, COMMAND_SEPARATOR, luser->sessionID, COMMAND_SEPARATOR, luser->isAdmin);
-      // 3. Release the lock
-      sem_post(sem);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-    else
-    {
-      // 3. Release the lock
-      sem_post(sem);
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_LOGIN, COMMAND_SEPARATOR, STATUS_FAIL);
-      send(ctx->clientSocket, response, strlen(response), 0);
-    }
-  }
-  else
-  {
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_LOGIN, COMMAND_SEPARATOR, STATUS_INVALID_ARGUMENTS);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-}
-
-void handleLogout(CommandContext *ctx)
-{
-  // printf("line: %s\n", saveptr);
-  char *sessionId = strtok_r(NULL, COMMAND_SEPARATOR, &ctx->rawInput);
-  char response[MESSAGE_SIZE];
-  char *endptr;
-  long unsigned sessionId2 = strtoul(sessionId, &endptr, 10); // base 10
-  if (*endptr != '\0' && *endptr != '\n' && *endptr != '\r')
-  {
-    // This catches if the string contained letters or symbols
-    printf("Warning: Partial conversion. Ended at: %s\n", endptr);
-  }
-  printf("SessionId: %s %lu\n", sessionId, sessionId2);
-  // 1. Wait for the lock (Block if another process is buying)
-  sem_wait(sem);
-  User *luser = getUserBySession(ctx->sessions, sessionId2);
-  
-  if (luser == NULL)
-  {
     // 3. Release the lock
     sem_post(sem);
-    snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_LOGOUT, COMMAND_SEPARATOR, STATUS_INVALID_SESSION);
-    send(ctx->clientSocket, response, strlen(response), 0);
-  }
-  else
-  {
-    int result = logoutUser(ctx->sessions, luser->username);
-    // 3. Release the lock
-    sem_post(sem);
+
     if (result == 0)
     {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_LOGOUT, COMMAND_SEPARATOR, STATUS_OK);
-      send(ctx->clientSocket, response, strlen(response), 0);
+        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_TASK, COMMAND_SEPARATOR, STATUS_OK);
     }
     else
     {
-      snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_LOGOUT, COMMAND_SEPARATOR, STATUS_FAIL);
-      send(ctx->clientSocket, response, strlen(response), 0);
+        snprintf(response, sizeof(response), "%s%s%d\n", COMMAND_ADD_TASK, COMMAND_SEPARATOR, STATUS_FAIL);
     }
-  }
+    send(ctx->clientSocket, response, strlen(response), 0);
 }
 
 int handleClient(SOCKET socket_client, char *read)
@@ -605,27 +109,14 @@ int handleClient(SOCKET socket_client, char *read)
     return -1;
 
   CommandContext ctx = {
-      .store = store,
+      .project = project,
       .clientSocket = socket_client,
-      .sessions = user,
-      .order = currentOrder,
       .rawInput = saveptr,
   };
 
   CommandEntry commandTable[] = {
-      {COMMAND_LOGIN, handleLogin},
-      {COMMAND_LOGOUT, handleLogout},
-      {COMMAND_ADD_PRODUCT, handleAddProduct},
-      {COMMAND_UPDATE_PRODUCT, handleUpdateProduct},
-      {COMMAND_VIEW_PRODUCT, handleViewProduct},
-      {COMMAND_SEARCH_PRODUCT, handleSearchProduct},
-      {COMMAND_VIEW_MEMBER, handleViewMember},
-      {COMMAND_REGISTER_MEMBER, handleRegisterMember},
-      {COMMAND_UPDATE_CART, handleUpdateCart},
-      {COMMAND_CLEAR_CART, handleClearCart},
-      {COMMAND_CHECKOUT_CART, handleCheckoutCart},
-      {COMMAND_VIEW_CART, handleViewCart},
-      {COMMAND_VIEW_ORDER, handleViewOrder},
+      {COMMAND_ADD_BOARD, handleAddBoard},
+      {COMMAND_ADD_TASK, handleAddTask},
       {NULL, NULL} // Sentinel to mark the end
   };
 
@@ -660,8 +151,7 @@ void handle_shutdown(int sig)
   printf("Closing listening socket...\n");
   CLOSESOCKET(socket_listen);
   socket_listen = -1;
-  munmap(store, sizeof(Store));
-  munmap(user, sizeof(UserSessions));
+
   printf("Cleaning up semaphore...\n");
   sem_close(sem);
   sem_unlink("/store_lock");
@@ -685,16 +175,9 @@ int setup(char *port)
   // init semaphore
   sem = sem_open("/store_lock", O_CREAT, 0644, 1);
 
-  // Init store,user,order using shared memory (mmap)
-  store = mmap(NULL, sizeof(Store), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  loadStore(store, STORE_FILENAME);
-  user = mmap(NULL, sizeof(UserSessions), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  if (loadUser(user, USER_FILENAME) == 1)
-  {
-    registerUser(user, adminUser, adminPwd, 1);
-  }
-  currentOrder = mmap(NULL, sizeof(Order), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  loadOrder(currentOrder, ORDER_FILENAME);
+  // Init project using shared memory (mmap)
+  project = mmap(NULL, sizeof(Project), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  loadProject(project, BOARD_FILENAME, TASK_FILENAME);
 
   struct addrinfo *bind_address;
   getaddrinfo(0, port, &hints, &bind_address);
@@ -719,6 +202,7 @@ int setup(char *port)
   }
 
   printf("Binding socket to local address...\n");
+  printf("Binding to port: %s\n", SERVER_PORT);
   if (bind(socket_listen, bind_address->ai_addr, bind_address->ai_addrlen))
   {
     fprintf(stderr, "bind() failed. (%d)\n", GETSOCKETERRNO());

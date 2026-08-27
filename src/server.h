@@ -1,5 +1,6 @@
-#ifndef SERVER_H // Fix SOCKET is undefined in server.c
+#ifndef SERVER_H 
 #define SERVER_H
+
 
 #define _POSIX_C_SOURCE 200112L
 #define _DEFAULT_SOURCE
@@ -16,10 +17,8 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <netdb.h>
+#include "models.h"
 #include "common.h"
-#include "store.h"
-#include "auth.h"
-#include "order.h"
 #include "protocol.h"
 
 
@@ -31,13 +30,12 @@
 #define MESSAGE_SIZE 2000
 
 typedef struct {
-    UserSessions *sessions;
-    Store *store;
-    Order *order;
+    Project *project;
     SOCKET clientSocket;
     char *rawInput;
 } CommandContext;
 
+// Define function pointer CommandHandler
 typedef void (*CommandHandler)(CommandContext *ctx);
 
 typedef struct {
@@ -46,30 +44,13 @@ typedef struct {
 } CommandEntry;
 
 
+// Server
+void handleAddBoard(CommandContext *ctx);
+void handleAddTask(CommandContext *ctx);
 
-// Anonymous
-void handleLogin(CommandContext *ctx);
-void handleLogout(CommandContext *ctx);
-void handleViewProduct(CommandContext *ctx);
-void handleSearchProduct(CommandContext *ctx);
-void handleRegisterMember(CommandContext *ctx);
-
-// Member
-void handleUpdateCart(CommandContext *ctx);
-void handleClearCart(CommandContext *ctx);
-void handleCheckoutCart(CommandContext *ctx);
-void handleViewCart(CommandContext *ctx);
-
-// Admin
-void handleAddProduct(CommandContext *ctx);
-void handleUpdateProduct(CommandContext *ctx);
-void handleRemoveProduct(CommandContext *ctx);
-void handleViewMember(CommandContext *ctx);
 
 // Common
 int handleClient(SOCKET socket_client,char *read);
 void handle_shutdown(int sig);
 int setup(char *port);
-
-
 #endif

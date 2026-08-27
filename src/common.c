@@ -64,3 +64,12 @@ int isFloat(const char *str) {
 
     return 1;
 }
+
+int fileExists(const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file != NULL) {
+        fclose(file);
+        return 0;
+    }
+    return 1;
+}
