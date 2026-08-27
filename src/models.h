@@ -47,5 +47,6 @@ int readAllTasks(Project *project, char *fileName);
 int saveAllTasks(Project *project, char *fileName);
 int addBoard(Project *project, char *boardTitle);
 int addTask(Board *board, char *taskTitle);
-
+Board *hasBoard(Project *project, char *boardId);
+Task *hasTask(Project *project, char *boardId, char *taskId);
 #endif

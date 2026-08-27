@@ -165,3 +165,28 @@ int addTask(Board *board, char *taskTitle){
     board->totalTasks++;
     return 0;
 }
+Board *hasBoard(Project *project,char *boardId){
+    Board *board = NULL;
+    if(boardId==NULL) return NULL;
+    for (int i = 0; i < project->totalBoards; i++)
+    {
+        if (strcmp(project->boards[i].boardId, boardId) == 0)
+        {
+            board = &project->boards[i];
+            break;
+        }
+    }
+    return board;
+}
+Task *hasTask(Project *project, char *boardId, char *taskId){
+    Board *board = hasBoard(project, boardId);
+    if(board==NULL || taskId == NULL) return NULL;
+    Task *task = NULL;
+    for (int i=0;i < board->totalTasks; i++){
+        if (strcmp(board->tasks[i].taskId, taskId) == 0){
+            task = & board->tasks[i];
+            break;
+        }
+    }
+    return task;
+}

@@ -60,15 +60,7 @@ void handleAddTask(CommandContext *ctx)
         return;
     }
 
-    Board *board = NULL;
-    for (int i = 0; i < MAX_BOARD; i++)
-    {
-        if (strcmp(ctx->project->boards[i].boardId, boardId) == 0)
-        {
-            board = &ctx->project->boards[i];
-            break;
-        }
-    }
+    Board *board = hasBoard(ctx->project, boardId);
 
     if (board == NULL)
     {
