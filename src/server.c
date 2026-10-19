@@ -1,3 +1,5 @@
+#define _DARWIN_C_SOURCE
+
 #include "server.h"
 
 #include "server.h"
@@ -168,7 +170,7 @@ int setup(char *port)
   sem = sem_open("/store_lock", O_CREAT, 0644, 1);
 
   // Init project using shared memory (mmap)
-  project = mmap(NULL, sizeof(Project), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  project = mmap(NULL, sizeof(Project), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
   loadProject(project, BOARD_FILENAME, TASK_FILENAME);
 
   struct addrinfo *bind_address;
